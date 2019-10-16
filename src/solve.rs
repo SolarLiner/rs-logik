@@ -1,14 +1,17 @@
-use crate::Node;
+use std::collections::HashSet;
 use std::fmt::{self, Display, Formatter};
 
+use crate::Node;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Litteral<'s> {
+pub struct Literal<'s> {
     identifier: &'s str,
     negated: bool,
 }
-pub type Clause<'s> = Vec<Litteral<'s>>;
 
-impl<'s> From<&'s str> for Litteral<'s> {
+pub type Clause<'s> = Vec<Literal<'s>>;
+
+impl<'s> From<&'s str> for Literal<'s> {
     fn from(identifier: &'s str) -> Self {
         Self {
             identifier,
@@ -17,7 +20,7 @@ impl<'s> From<&'s str> for Litteral<'s> {
     }
 }
 
-impl<'s> Into<Node<'s>> for Litteral<'s> {
+impl<'s> Into<Node<'s>> for Literal<'s> {
     fn into(self) -> Node<'s> {
         if self.negated {
             Node::UnopNode("not", Box::new(Node::IdentNode(self.identifier)))
@@ -27,7 +30,7 @@ impl<'s> Into<Node<'s>> for Litteral<'s> {
     }
 }
 
-impl<'s> Display for Litteral<'s> {
+impl<'s> Display for Literal<'s> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.negated {
             write!(f, "{}", self.identifier)?;
@@ -38,7 +41,7 @@ impl<'s> Display for Litteral<'s> {
     }
 }
 
-pub fn distribute_or<'s>(ast: Box<Node<'s>>) -> Option<Node<'s>> {
+pub fn distribute_or(ast: Box<Node>) -> Option<Node> {
     match *ast {
         Node::BinOpNode("->", _, _) => None,
         Node::BinOpNode("or", oexpr_a, oexpr_b) => {
@@ -92,7 +95,7 @@ pub fn distribute_or<'s>(ast: Box<Node<'s>>) -> Option<Node<'s>> {
     }
 }
 
-pub fn remove_implications<'s>(ast: Box<Node<'s>>) -> Node<'s> {
+pub fn remove_implications(ast: Box<Node>) -> Node {
     match *ast {
         Node::BinOpNode(op, left, right) => {
             if op == "->" {
@@ -112,7 +115,7 @@ pub fn remove_implications<'s>(ast: Box<Node<'s>>) -> Node<'s> {
     }
 }
 
-pub fn remove_negations<'s>(ast: Box<Node<'s>>) -> Option<Node<'s>> {
+pub fn remove_negations(ast: Box<Node>) -> Option<Node> {
     match *ast {
         Node::BinOpNode("->", _, _) => None,
         Node::BinOpNode(op, left, right) => {
@@ -141,12 +144,12 @@ pub fn remove_negations<'s>(ast: Box<Node<'s>>) -> Option<Node<'s>> {
     }
 }
 
-pub fn extract_clauses<'s>(ast: Box<Node<'s>>) -> Option<Vec<Clause<'s>>> {
+pub fn extract_clauses(ast: Box<Node>) -> Option<Vec<Clause>> {
     match *ast {
-        Node::IdentNode(i) => Some(vec![vec![Litteral::from(i)]]),
+        Node::IdentNode(i) => Some(vec![vec![Literal::from(i)]]),
         Node::UnopNode("not", right) => {
             if let Node::IdentNode(identifier) = *right {
-                Some(vec![vec![Litteral::from(identifier)]])
+                Some(vec![vec![Literal::from(identifier)]])
             } else {
                 None
             }
@@ -158,10 +161,37 @@ pub fn extract_clauses<'s>(ast: Box<Node<'s>>) -> Option<Vec<Clause<'s>>> {
     }
 }
 
+pub fn sat_solver(clauses: Vec<Clause>) -> bool {
+    let mut set: HashSet<Clause> = HashSet::new();
+    for c in clauses {
+        set.insert(c);
+    }
+    // Extraire les résolvantes (déduire des mini-clauses intermédiaires à partir des clauses existantes)
+    loop {
+        let old_len = set.len();
+        let r = extract_resolvent(&set);
+        for c in set.iter() {
+            if c.len() == 0 {
+                return false;
+            }
+        }
+        for c in r {
+            set.insert(c);
+        }
+        if set.len() == old_len {
+            return true;
+        }
+    }
+}
+
+fn extract_resolvent(clauses: &HashSet<Clause>) -> HashSet<Clause> {
+    // TBD
+}
+
 #[cfg(test)]
 mod test {
+    use super::{distribute_or, extract_clauses, Literal, remove_implications, remove_negations};
     use super::Node;
-    use super::{distribute_or, extract_clauses, remove_implications, remove_negations, Litteral};
 
     #[test]
     fn test_distribute_or() {
@@ -258,13 +288,13 @@ mod test {
                 Box::new(Node::IdentNode("b")),
             )),
         )))
-        .expect("Couldn't remove negations");
+            .expect("Couldn't remove negations");
         let expr_b2 = remove_negations(Box::new(Node::BinOpNode(
             "and",
             Box::new(Node::UnopNode("not", Box::new(Node::IdentNode("a")))),
             Box::new(Node::UnopNode("not", Box::new(Node::IdentNode("b")))),
         )))
-        .expect("Couldn't remove negations");
+            .expect("Couldn't remove negations");
         println!("A: {}\tB: {}", expr_b1, expr_b2);
         assert_eq!(expr_b1, expr_b2);
 
@@ -289,7 +319,7 @@ mod test {
             Box::new(Node::IdentNode("b")),
         ));
         let clauses_a_out = extract_clauses(expr_a_in.clone());
-        let clauses_a_expected = vec![vec![Litteral::from("a"), Litteral::from("b")]];
+        let clauses_a_expected = vec![vec![Literal::from("a"), Literal::from("b")]];
 
         println!(
             "In: {}\tExpected: {:?}\nActual: {:?}",
